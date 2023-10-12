@@ -23,13 +23,17 @@ class sigmoid:
         numpy array containing sigmoid function ouputs of the inputs in the input array
     '''
 
+    def __init__(self):
+        self.name = 'sigmoid'
+
     # Forward Pass Definition
-    def forward(input):
-        return (1+np.exp(-1*input))**-1
+    def forward(self, input):
+        self.output = (1+np.exp(-1*input))**-1
+        return self.output
 
     # Backward Pass Definition
-    def backward(input):
-        return np.exp(-input)/np.square((1+np.exp(-input)))
+    def backward(self):
+        return self.output * (1 - self.output)
 
 # Rectified Linear Activation Function
 class ReLU:
@@ -49,13 +53,17 @@ class ReLU:
         numpy array containing ReLU function ouputs of the inputs in the input array
     '''
 
+    def __init__(self):
+        self.name = 'ReLU'
+
     # Forward Pass Definition
-    def forward(input):
+    def forward(self, input):
+        self.output = np.maximum(0, input)
         return np.maximum(0, input)
     
     # Backward Pass Definition
-    def backward(input):
-        return np.heaviside(input, 0)
+    def backward(self):
+        return np.heaviside(self.output, 0)
 
 #Softmax Function
 class softmax:
@@ -74,6 +82,9 @@ class softmax:
     Output:
         numpy array containing softmax function ouputs of the inputs in the input array
     '''
+
+    def __init__(self):
+        self.name = 'softmax'
 
     # Forward Pass Definition
     def forward(input):
@@ -143,47 +154,85 @@ class Layer:
         
         num_neurons = Number of neurons in layer
 
+        act_func = determines the activation function that will be used on the layer
+
     Functions:
         forward() = takes in layer input and computes the layer forward probagation output
     '''
 
-    def __init__(self, num_inputs, num_neurons):
-        self.num_inputs=num_inputs
-        self.num_neurons=num_neurons
+    def __init__(self, num_inputs, num_neurons, act_func = sigmoid):
+        self.num_inputs = num_inputs
+        self.num_neurons = num_neurons
+        self.act_func = act_func()
         self.weights = 0.1 * np.random.rand(num_inputs, num_neurons)
         self.biases = np.zeros(num_neurons)
 
     # Forward Propagation Pass
-    def forward(self, input, act_func):
+    def forward(self, input):
+        self.input = input
         self.output = np.dot(input, self.weights) + self.biases
-        self.activation = act_func.forward(self.output)
+        self.activation = self.act_func.forward(self.output)
         return self.activation
+    
+    # Backward Propagation Pass
+    def backward(self, learning_rate, dcda):
+        if self.input.ndim == 1:
+            dzdw = self.input.reshape(self.input.shape[0], 1)
+        else:
+            dzdw = self.input.reshape(self.input.shape[0], self.input.shape[1], 1)
+
+        dadz = self.act_func.backward()
+
+        #calculate local layer weights/biases gradients
+        dcdz = dcda * dadz
+        if self.input.ndim == 1:
+            dcdz = dcdz.reshape(1,dcdz.shape[0])
+        else: 
+            dcdz = dcdz.reshape(dcdz.shape[0], 1, dcdz.shape[1])
+            dcdz = dcdz.mean(axis=0)
+
+        weight_gradient = np.dot(dzdw, dcdz)
+        bias_gradient = dadz * dcda
+        
+        if self.input.ndim != 1:
+            weight_gradient = weight_gradient.mean(axis=0)
+            bias_gradient = bias_gradient.mean(axis=0)
+
+
+        #update layer weights/biases
+        self.weights -= learning_rate * weight_gradient
+        self.biases -= learning_rate * bias_gradient
+
+
+        #update local cost partial derivative for previous layer (L-1)
+        dcda = np.dot((dadz * dcda), self.weights.T)
+        return dcda
 
 # Neural Network Class Definition
 class Neural_Network:
     '''
-    Neural Network class definition used to create fully connected neural netorks very easily.
+    Neural Network class definition used to create fully connected neural netorks very easily. Inputs Must be numpy arrays
 
     Inputs:
-        structure = a list where each position represents a separate layer, and each value (int) represents the number of neurons in that layer
+        structure = a list where each position represents a separate layer, and each value (int) represents the number of neurons in that layer, with the exception of the first layer being a "dummy" input neuron layer
         
-        act_func = the activation function to be used for the network layers
+        act_func = the activation function to be used for the network layers. This can be changed after declaring the network on a per layer basis so different layers can have different funcitons
         
         seed = (optional) the seed used for generating initial weights and biases, used to create predictable resulsts
 
     Functions:
-        forward = runs forward pass of network on a given input and returns the output
+        forward = runs forward pass of network on a given input and returns the output, can handle batch inputs aswell.
 
-        backpropagate = runs backpropagation pass on network
+        backward = runs backpropagation pass on network, can also handle batch inputs
 
         evaluate = evaluates the network loss and accuracy on a given input and output dataset, and accuracy funciton
         
         save = saves current network state as a json file
 
-        train = runs training loop on the network
+        train = runs training loop on the network, trains on individual samples. However, the network does support batches
     '''
     
-    def __init__(self, structure=[], act_func=sigmoid, cost_func=MS_cost, seed=None):
+    def __init__(self, structure = [], act_func = sigmoid, cost_func = MS_cost, seed = None):
         #set seed for randomly generated numbers
         if seed!=None:
             np.random.seed(seed)
@@ -191,54 +240,23 @@ class Neural_Network:
         # build network
         self.structure = structure
         self.network = []
-        self.act_func = act_func
         self.cost_func = cost_func
 
         for i in range(1, len(structure)):
-            self.network.append(Layer(structure[i-1], structure[i]))
+            self.network.append(Layer(structure[i-1], structure[i], act_func = act_func))
 
-    # forward propagate
+    # forward propagation
     def forward(self, input):
         for layer in self.network:
-            output = layer.forward(input, self.act_func)
+            output = layer.forward(input)
             input = output
         return output
 
-    # back propagation
-    def back_propagate(self, input, output, target, learning_rate):
-
+    # backward propagation
+    def backward(self, output, target, learning_rate):
         dcda = self.cost_func.backward(output, target)
         for i in range(len(self.network)-1, -1, -1):
-
-            #find dz/dw and da/dz
-            if i == 0:
-                activation = input
-                activation=np.reshape(activation, (len(activation),1))
-                dzdw=activation
-            else:
-                activation=self.network[i-1].activation
-                activation=np.reshape(activation, (len(activation),1))
-                dzdw=activation
-
-            dadz = self.act_func.backward(self.network[i].output)
-
-
-            #calculate local layer weights/biases gradients
-            temp=dcda * dadz
-            temp=temp.reshape((1,len(temp)))
-            weight_gradient = np.dot(dzdw, temp)
-
-            #weight_gradient = dzdw * dadz * dcda
-            bias_gradient = dadz * dcda
-
-
-            #update local cost partial derivative to next layer (L-1)
-            dzda=np.sum(self.network[i].weights, axis=0)
-            dzda=(np.reshape(dzda, (1,len(dzda))) + self.network[i].biases).T
-            dcda = np.dot((dadz * dcda), self.network[i].weights.T)
-
-            self.network[i].weights -= learning_rate*weight_gradient
-            self.network[i].biases -= learning_rate*bias_gradient
+            dcda = self.network[i].backward(learning_rate, dcda)
 
     # evaluates average cost and accuracy over whole data set
     def evaluate(self, X, y, accuracy_func=None):
@@ -257,10 +275,10 @@ class Neural_Network:
 
         return accuracy, np.mean(costs)
     
+    # save current neural network state as a json file
     def save(self, filename, loss = None, accuracy = None):
         network = {}
         network["Structure"] = self.structure
-        network["Activation_Func"] = self.act_func.__name__
         network["Cost_Func"] = self.cost_func.__name__
         
         #get current weights/biases
@@ -268,8 +286,9 @@ class Neural_Network:
         for i in range(len(self.network)):
             layer_weights = self.network[i].weights.tolist()
             layer_biases = self.network[i].biases.tolist()
+            act_func_name = self.network[i].act_func.name
 
-            network_data.append((layer_weights, layer_biases))
+            network_data.append([layer_weights, layer_biases, act_func_name])
         network["Data"] = network_data
 
         #optionally save Loss/Accuracy data
@@ -296,7 +315,7 @@ class Neural_Network:
             for j in range(len(X)):
                 output = self.forward(X[j])
                 average_cost.append(self.cost_func.forward(output, y[j]))
-                self.back_propagate(X[j], output, y[j], learning_rate)
+                self.backward(output, y[j], learning_rate)
 
             #evaluate model
             accuracy, loss = self.evaluate(X, y, accuracy_func=accuracy_func)
@@ -320,34 +339,3 @@ class Neural_Network:
             ax[1].set_title('Accuracy Vs Epoch')
             fig.tight_layout()
             plt.show()
-
-#-------------------- EXAMPLE NEURAl NETWORK CLASS USAGE --------------------
-
-# Example use of Neural Network Module
-if __name__ == '__main__':
-
-    #function for determining the accuracy of network
-    def get_accuracy(output, target):
-        output = output.reshape(len(target)).round()
-        accuracy = np.mean(output == target)
-
-        return accuracy
-
-    #Training data example - XOR logic
-    X = [[0, 0], [0, 1], [1, 0], [1, 1]]
-    y = [0, 1, 1, 0]
-
-    #Neural Network definition and training
-    network = Neural_Network([2, 3, 1], act_func=sigmoid, cost_func=MS_cost, seed=0)
-    network.train(X, y, 0.25, 10000, show_training_data=False, accuracy_func=get_accuracy)
-    
-    #Test Trained Model
-    print('Training done, enter test values:')
-    while(True):
-        x1=int(input())
-        x2=int(input())
-        output = network.forward([x1,x2])
-        if output[0]>0.5:
-            print([x1,x2],'=', output, '=',1)
-        else:
-            print([x1,x2],'=',output,'=',0)
