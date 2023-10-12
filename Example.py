@@ -8,12 +8,12 @@ def get_accuracy(output, target):
     return accuracy
 
 #Training data example - XOR logic
-X = [[0, 0], [0, 1], [1, 0], [1, 1]]
-y = [0, 1, 1, 0]
+X = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
+y = np.array([0, 1, 1, 0])
 
 #Neural Network definition and training
-network = Neural_Network([2, 3, 1], act_func=sigmoid, cost_func=MS_cost)
-network.train(X, y, 0.25, 4000, show_training_data = True, seed = 0, accuracy_func = get_accuracy)
+network = Neural_Network([2, 3, 1], act_func=sigmoid, cost_func=MS_cost, seed=0)
+network.train(X, y, 0.5, 2000, show_training_data  = True, accuracy_func = get_accuracy)
 
 #Test Trained Model
 while(True):
